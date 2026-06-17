@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
+  base: '/whiteboard-app/',
   plugins: [react(), tailwindcss()],
   server: {
     port: process.env.PORT ? parseInt(process.env.PORT) : undefined,
