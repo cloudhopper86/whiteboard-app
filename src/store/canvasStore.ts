@@ -15,7 +15,7 @@ interface CanvasStore {
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 4;
 
-export const useCanvasStore = create<CanvasStore>()((set, get) => ({
+export const useCanvasStore = create<CanvasStore>()((set) => ({
   offsetX: 0,
   offsetY: 0,
   scale: 1,

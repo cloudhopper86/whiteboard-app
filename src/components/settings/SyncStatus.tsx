@@ -1,4 +1,4 @@
-import { Cloud, CloudOff, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Cloud, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { SyncStatus as SyncStatusType } from '../../hooks/useGitHubSync';
 
 interface Props {

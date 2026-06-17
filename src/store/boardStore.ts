@@ -30,7 +30,7 @@ interface BoardStore {
 }
 
 export const useBoardStore = create<BoardStore>()(
-  subscribeWithSelector((set, get) => ({
+  subscribeWithSelector((set) => ({
     notes: {},
     arrows: {},
     selection: null,
