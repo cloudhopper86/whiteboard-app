@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useCanvasStore } from '../../store/canvasStore';
 import { useBoardStore } from '../../store/boardStore';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -7,15 +7,22 @@ import CanvasGrid from './CanvasGrid';
 import StickyNote from '../note/StickyNote';
 import Arrow from '../arrow/Arrow';
 
+const SEL_THRESHOLD = 5; // px before rubber band activates
+
 export default function Canvas() {
   const { offsetX, offsetY, scale, panBy } = useCanvasStore();
-  const { notes, arrows, addNote, clearSelection } = useBoardStore();
+  const { notes, arrows, addNote, clearSelection, setMultiSelection } = useBoardStore();
   const snapToGrid = useSettingsStore((s) => s.snapToGrid);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
   const spaceHeld = useRef(false);
   const lastPointer = useRef({ x: 0, y: 0 });
+
+  // Rubber-band selection
+  const selStart = useRef<{ x: number; y: number } | null>(null);
+  const selBoxRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [selBox, setSelBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
   // Space-bar pan mode
   useEffect(() => {
@@ -65,34 +72,89 @@ export default function Canvas() {
         e.target === wrapperRef.current ||
         (e.target as HTMLElement).dataset.grid === '1';
 
+      const tryCapture = (id: number) => {
+        try { wrapperRef.current?.setPointerCapture(id); } catch { /* synthetic events have no real pointer id */ }
+      };
+
       if (e.button === 1 || (e.button === 0 && spaceHeld.current)) {
         e.preventDefault();
         isPanning.current = true;
         lastPointer.current = { x: e.clientX, y: e.clientY };
-        wrapperRef.current?.setPointerCapture(e.pointerId);
+        tryCapture(e.pointerId);
       } else if (e.button === 0 && isBackground) {
-        clearSelection();
+        selStart.current = { x: e.clientX, y: e.clientY };
+        selBoxRef.current = null;
+        tryCapture(e.pointerId);
       }
     },
-    [clearSelection]
+    []
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!isPanning.current) return;
-      panBy(e.clientX - lastPointer.current.x, e.clientY - lastPointer.current.y);
-      lastPointer.current = { x: e.clientX, y: e.clientY };
+      if (isPanning.current) {
+        panBy(e.clientX - lastPointer.current.x, e.clientY - lastPointer.current.y);
+        lastPointer.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
+      if (selStart.current) {
+        const dx = e.clientX - selStart.current.x;
+        const dy = e.clientY - selStart.current.y;
+        if (Math.abs(dx) > SEL_THRESHOLD || Math.abs(dy) > SEL_THRESHOLD) {
+          const box = {
+            x: Math.min(e.clientX, selStart.current.x),
+            y: Math.min(e.clientY, selStart.current.y),
+            w: Math.abs(dx),
+            h: Math.abs(dy),
+          };
+          selBoxRef.current = box;
+          setSelBox(box);
+        }
+      }
     },
     [panBy]
   );
 
-  const onPointerUp = useCallback(() => {
-    isPanning.current = false;
-  }, []);
+  const onPointerUp = useCallback(
+    (_e: React.PointerEvent<HTMLDivElement>) => {
+      isPanning.current = false;
+
+      if (selStart.current) {
+        const box = selBoxRef.current;
+        if (box) {
+          // Rubber-band: find all notes that intersect the selection rect in world space
+          const { offsetX, offsetY, scale } = useCanvasStore.getState();
+          const topLeft = screenToWorld(box.x, box.y, offsetX, offsetY, scale);
+          const bottomRight = screenToWorld(box.x + box.w, box.y + box.h, offsetX, offsetY, scale);
+          const { notes } = useBoardStore.getState();
+          const ids = Object.values(notes)
+            .filter(
+              (n) =>
+                n.x < bottomRight.x &&
+                n.x + n.width > topLeft.x &&
+                n.y < bottomRight.y &&
+                n.y + n.height > topLeft.y
+            )
+            .map((n) => n.id);
+          if (ids.length > 0) {
+            setMultiSelection(ids);
+          } else {
+            clearSelection();
+          }
+          selBoxRef.current = null;
+          setSelBox(null);
+        } else {
+          // Plain click on background — clear everything
+          clearSelection();
+        }
+        selStart.current = null;
+      }
+    },
+    [clearSelection, setMultiSelection]
+  );
 
   const onDoubleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      // Only create a note when clicking on the raw canvas background
       const isBackground =
         e.target === wrapperRef.current ||
         (e.target as HTMLElement).dataset.grid === '1';
@@ -155,6 +217,23 @@ export default function Canvas() {
           <StickyNote key={note.id} note={note} canvasScale={scale} snapToGrid={snapToGrid} />
         ))}
       </div>
+
+      {/* Rubber-band selection rect (screen space) */}
+      {selBox && (
+        <div
+          style={{
+            position: 'absolute',
+            left: selBox.x,
+            top: selBox.y,
+            width: selBox.w,
+            height: selBox.h,
+            border: '1.5px dashed #3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.07)',
+            pointerEvents: 'none',
+            zIndex: 9999,
+          }}
+        />
+      )}
     </div>
   );
 }

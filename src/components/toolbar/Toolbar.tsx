@@ -23,7 +23,7 @@ export default function Toolbar({
   canvasRef,
 }: Props) {
   const { offsetX, offsetY, scale } = useCanvasStore();
-  const { addNote, addArrow, deleteNote, deleteArrow, selection, maxZIndex } = useBoardStore();
+  const { addNote, addArrow, deleteNote, deleteArrow, selection, maxZIndex, notes, arrows } = useBoardStore();
   const { snapToGrid, setSnapToGrid } = useSettingsStore();
 
   const btn =
@@ -72,7 +72,7 @@ export default function Toolbar({
   const handleExport = async () => {
     if (!canvasRef.current) return;
     try {
-      await exportToPDF(canvasRef.current);
+      await exportToPDF(canvasRef.current, notes, arrows);
     } catch (err) {
       console.error('PDF export failed:', err);
     }

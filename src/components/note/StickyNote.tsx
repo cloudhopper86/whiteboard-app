@@ -21,9 +21,21 @@ const GRID = 20;
 const snapValue = (v: number) => Math.round(v / GRID) * GRID;
 
 export default function StickyNote({ note, canvasScale, snapToGrid }: Props) {
-  const { updateNote, deleteNote, setSelection, selection, bringToFront } =
-    useBoardStore();
+  const {
+    updateNote,
+    deleteNote,
+    setSelection,
+    selection,
+    bringToFront,
+    bringManyToFront,
+    multiSelectedNoteIds,
+    toggleNoteInMultiSelection,
+    setMultiSelection,
+  } = useBoardStore();
+
   const isSelected = selection?.kind === 'note' && selection.id === note.id;
+  const isMultiSelected = multiSelectedNoteIds.includes(note.id);
+  const isHighlighted = isSelected || isMultiSelected;
 
   // ── Manual drag via the grip handle ──────────────────────────────────────
   const dragRef = useRef<{
@@ -31,19 +43,42 @@ export default function StickyNote({ note, canvasScale, snapToGrid }: Props) {
     screenY: number;
     startX: number;
     startY: number;
+    // start positions of all notes involved in this drag (multi or single)
+    starts: Record<string, { x: number; y: number }>;
   } | null>(null);
 
   const onGripPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    setSelection({ kind: 'note', id: note.id });
-    bringToFront('note', note.id);
-    dragRef.current = {
-      screenX: e.clientX,
-      screenY: e.clientY,
-      startX: note.x,
-      startY: note.y,
-    };
+
+    if (e.shiftKey) {
+      // Shift+click on grip = toggle selection, no drag
+      toggleNoteInMultiSelection(note.id);
+      return;
+    }
+
+    if (isMultiSelected) {
+      // Drag all selected notes together
+      bringManyToFront(multiSelectedNoteIds);
+      const allNotes = useBoardStore.getState().notes;
+      const starts: Record<string, { x: number; y: number }> = {};
+      multiSelectedNoteIds.forEach((id) => {
+        if (allNotes[id]) starts[id] = { x: allNotes[id].x, y: allNotes[id].y };
+      });
+      dragRef.current = { screenX: e.clientX, screenY: e.clientY, startX: note.x, startY: note.y, starts };
+    } else {
+      // Single-note drag — clear any multi-selection
+      setMultiSelection([]);
+      setSelection({ kind: 'note', id: note.id });
+      bringToFront('note', note.id);
+      dragRef.current = {
+        screenX: e.clientX,
+        screenY: e.clientY,
+        startX: note.x,
+        startY: note.y,
+        starts: { [note.id]: { x: note.x, y: note.y } },
+      };
+    }
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
@@ -51,13 +86,16 @@ export default function StickyNote({ note, canvasScale, snapToGrid }: Props) {
     if (!dragRef.current) return;
     const dx = (e.clientX - dragRef.current.screenX) / canvasScale;
     const dy = (e.clientY - dragRef.current.screenY) / canvasScale;
-    let newX = dragRef.current.startX + dx;
-    let newY = dragRef.current.startY + dy;
-    if (snapToGrid) {
-      newX = snapValue(newX);
-      newY = snapValue(newY);
-    }
-    updateNote(note.id, { x: newX, y: newY });
+
+    Object.entries(dragRef.current.starts).forEach(([id, start]) => {
+      let newX = start.x + dx;
+      let newY = start.y + dy;
+      if (snapToGrid) {
+        newX = snapValue(newX);
+        newY = snapValue(newY);
+      }
+      updateNote(id, { x: newX, y: newY });
+    });
   };
 
   const onGripPointerUp = () => {
@@ -73,13 +111,18 @@ export default function StickyNote({ note, canvasScale, snapToGrid }: Props) {
     },
   });
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      toggleNoteInMultiSelection(note.id);
+      return;
+    }
+    // Regular click — clear multi-selection, set single selection
+    if (multiSelectedNoteIds.length > 0) setMultiSelection([]);
     setSelection({ kind: 'note', id: note.id });
     bringToFront('note', note.id);
   };
 
   return (
-    // react-rnd is used ONLY for corner/edge resize handles; drag is disabled
     <Rnd
       disableDragging
       position={{ x: note.x, y: note.y }}
@@ -89,6 +132,7 @@ export default function StickyNote({ note, canvasScale, snapToGrid }: Props) {
       minHeight={100}
       style={{ zIndex: note.zIndex }}
       onResizeStart={() => {
+        setMultiSelection([]);
         setSelection({ kind: 'note', id: note.id });
         bringToFront('note', note.id);
       }}
@@ -119,25 +163,39 @@ export default function StickyNote({ note, canvasScale, snapToGrid }: Props) {
         onClick={handleClick}
         onDoubleClick={(e) => e.stopPropagation()}
       >
-        {/* Floating format toolbar */}
+        {/* Floating format toolbar — counter-scaled so it stays the same visual size at any zoom */}
         {isSelected && (
-          <NoteToolbar
-            editor={editor}
-            backgroundColor={note.backgroundColor}
-            fontFamily={note.fontFamily}
-            onDelete={() => deleteNote(note.id)}
-            onBgColorChange={(color) => updateNote(note.id, { backgroundColor: color })}
-            onFontChange={(font) => {
-              loadFont(font);
-              updateNote(note.id, { fontFamily: font });
+          <div
+            className="absolute left-0 z-50"
+            style={{
+              bottom: '100%',
+              transform: `scale(${1 / canvasScale})`,
+              transformOrigin: 'bottom left',
             }}
-          />
+            onClick={(e) => e.stopPropagation()}
+          >
+            <NoteToolbar
+              editor={editor}
+              backgroundColor={note.backgroundColor}
+              fontFamily={note.fontFamily}
+              onDelete={() => deleteNote(note.id)}
+              onBgColorChange={(color) => updateNote(note.id, { backgroundColor: color })}
+              onFontChange={(font) => {
+                loadFont(font);
+                updateNote(note.id, { fontFamily: font });
+              }}
+            />
+          </div>
         )}
 
         {/* Card */}
         <div
           className={`w-full h-full rounded-xl shadow-md flex flex-col overflow-hidden border-2 transition-colors ${
-            isSelected ? 'border-blue-400' : 'border-transparent'
+            isHighlighted
+              ? isMultiSelected && !isSelected
+                ? 'border-violet-400'
+                : 'border-blue-400'
+              : 'border-transparent'
           }`}
           style={{ backgroundColor: note.backgroundColor, fontFamily: note.fontFamily }}
         >
@@ -152,6 +210,7 @@ export default function StickyNote({ note, canvasScale, snapToGrid }: Props) {
             onPointerMove={onGripPointerMove}
             onPointerUp={onGripPointerUp}
             onPointerCancel={onGripPointerUp}
+            onClick={(e) => e.stopPropagation()}
           >
             <GripHorizontal size={14} className="text-gray-400 pointer-events-none" />
           </div>

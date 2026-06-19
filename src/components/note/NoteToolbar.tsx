@@ -34,7 +34,7 @@ export default function NoteToolbar({
 
   return (
     <div
-      className="absolute -top-11 left-0 flex items-center gap-1 bg-white rounded-lg shadow-lg border border-gray-200 px-2 py-1.5 z-50 whitespace-nowrap"
+      className="flex items-center gap-1 bg-white rounded-lg shadow-lg border border-gray-200 px-2 py-1.5 whitespace-nowrap"
       // Prevent canvas from receiving these interactions
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}

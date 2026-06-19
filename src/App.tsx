@@ -70,9 +70,14 @@ function AppInner() {
       }
 
       if (!isEditing && (e.key === 'Delete' || e.key === 'Backspace')) {
-        const sel = useBoardStore.getState().selection;
-        if (sel?.kind === 'note') deleteNote(sel.id);
-        if (sel?.kind === 'arrow') deleteArrow(sel.id);
+        const { selection, multiSelectedNoteIds } = useBoardStore.getState();
+        if (multiSelectedNoteIds.length > 0) {
+          multiSelectedNoteIds.forEach((id) => deleteNote(id));
+        } else if (selection?.kind === 'note') {
+          deleteNote(selection.id);
+        } else if (selection?.kind === 'arrow') {
+          deleteArrow(selection.id);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
